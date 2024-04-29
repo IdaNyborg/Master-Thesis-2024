@@ -7,4 +7,6 @@ This GitHub page contains all code used in the master thesis project by Ida Nybo
 
 "Trio data management" contains code for the data cleaning and the construction of the data matrices V_pat and V_mat
 
+"Trio data intro" contains introductionary plots and numbers for the paternal and maternal datasets
+
 
