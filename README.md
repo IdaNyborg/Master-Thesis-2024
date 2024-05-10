@@ -5,7 +5,7 @@ This GitHub page contains all code used in the master thesis project by Ida Nybo
 
 "Why grouping" contains code for performing cross validation and BIC analysis for the regular NMF model for the paternal data
 
-"Trio data management" contains code for the data cleaning and the construction of the data matrices V_pat and V_mat
+"Trio data management" contains code for the data cleaning and the construction of the data matrices V_pat and V_mat for both the full data and the grouped data
 
 "Trio data intro" contains introductionary plots and numbers for the paternal and maternal datasets
 
