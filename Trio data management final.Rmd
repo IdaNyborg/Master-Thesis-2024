@@ -1,0 +1,247 @@
+---
+title: "Trio data management final"
+output: html_document
+date: '2024-05-10'
+---
+
+```{r}
+# Libraries, working directory etc.
+setwd("~/Desktop/Trio data/")
+rm(list = ls())
+library(readr)
+library(gtools)
+library(dplyr)
+theme_set(theme_bw())
+```
+
+
+```{r}
+# Prepare data - maternal mutations ####
+
+# Loading data
+mat_data <- read_tsv("maternal_dnms_transition_transversion.tsv", col_names = F)
+
+# Giving column names
+colnames(mat_data) <- c("Chr",	"Pos",	"Ref",	"Alt",	"mutation_class_cpg",	
+                        "Type_of_mutation",	"context",	"Child",	"Phase", 
+                        "AGE_FATHER",	"AGE_MOTHER")
+
+# Changing to correct mutation terminology
+mat_data$mutation_class_cpg[mat_data$mutation_class_cpg=="CpG>TpG"] <- "C>T"
+mat_data$mutationtype <- apply(mat_data,1,function(x) paste0(substr(x[7],1,1), "[", x[5], "]", substr(x[7],3,3)))
+```
+
+
+```{r}
+# Prepare data - paternal mutations ####
+
+# Loading data
+pat_data <- read_tsv("paternal_dnms_transition_transversion.tsv", col_names = F)
+
+# Giving column names
+colnames(pat_data) <- c("Chr",	"Pos",	"Ref",	"Alt",	"mutation_class_cpg",	
+                        "Type_of_mutation",	"context",	"Child",	"Phase", 
+                        "AGE_FATHER",	"AGE_MOTHER")
+
+# Changing to correct mutation terminology
+pat_data$mutation_class_cpg[pat_data$mutation_class_cpg=="CpG>TpG"] <- "C>T"
+pat_data$mutationtype <- apply(pat_data,1,function(x) paste0(substr(x[7],1,1), "[", x[5], "]", substr(x[7],3,3)))
+
+## It is seen by the number of children, that they do not correspond for the paternal and maternal data. 
+## We thus below find those that are not present in both. This is only the case for children registered in the paternal data and not in the maternal data. This corresponds to 53 children.
+
+# Find elements that are the same in both lists (intersection)
+common_children <- intersect(unique(pat_data$Child), unique(mat_data$Child))
+
+# We only keep the children present in both data sets
+pat_data <- pat_data[pat_data$Child %in% common_children, ]
+```
+
+```{r, fig.width=10, fig.height=3.5}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(1,1),cex = 1 ,mgp = c(1.5, 0.5, 0))
+# We need to drag out the data that has grandparent data as well. Could be done with k-means, as we don't have any indicator
+set.seed(123)
+
+pat_data3 <- pat_data %>% group_by(Child, AGE_FATHER, AGE_MOTHER) %>% summarise(total_count = length(Pos))
+
+# Setting the number to 5 from graphical representation
+k <- 5
+
+kmeans_result <- kmeans(pat_data3[, c("AGE_FATHER", "total_count", "AGE_MOTHER")], centers = k)
+pat_data3$Cluster <- as.factor(kmeans_result$cluster)
+
+# Plot to see if it seems reasonable
+ggplot(pat_data3, aes(x = pat_data3$AGE_FATHER, y = pat_data3$total_count, col = Cluster)) + geom_point() +
+  labs(x = "Age of father", y = "Number of mutations") + 
+  theme(axis.text = element_text(size = 16), axis.title = element_text(size = 16), legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16))
+
+# Merge pat_data with pat_data3 based on Child
+merged_data_pat <- inner_join(pat_data, pat_data3 %>% select(Child, Cluster), by = "Child")
+merged_data_mat <- inner_join(mat_data, pat_data3 %>% select(Child, Cluster), by = "Child")
+
+# Remove redundant columns added from the "join"
+merged_data_pat <- merged_data_pat %>%
+  select(-AGE_FATHER.y)
+merged_data_mat <- merged_data_mat %>%
+  select(-AGE_FATHER.y)
+colnames(merged_data_pat)[which(names(merged_data_pat) == "AGE_FATHER.x")] <- "AGE_FATHER"
+colnames(merged_data_mat)[which(names(merged_data_mat) == "AGE_FATHER.x")] <- "AGE_FATHER"
+
+# Filter rows where the cluster is 1, 3, or 5
+filtered_data_pat <- merged_data_pat %>%
+  filter(Cluster %in% c(1, 3, 5))
+filtered_data_mat <- merged_data_mat %>%
+  filter(Cluster %in% c(1, 3, 5))
+```
+
+
+
+
+For full data matrices
+
+```{r}
+# Constructing count matrix - maternal mutations ####
+
+# Making a data set with count of each mutation type for each child
+mat_data2 <- filtered_data_mat %>% group_by(Child, mutationtype) %>% summarise(total_count = length(Pos))
+
+# Making a matrix with rows = # children and cols = # mutation types (96)
+mat_count <- matrix(0, nrow = length(unique(filtered_data_mat$Child)), ncol = 96)
+
+# Creating list of all 96 different mutation types
+res <- permutations(4,2,c("A","C","G","T"), repeats.allowed = T, set = F)
+res2 <- res[rep(1:nrow(res), 6),]
+res2 <- cbind(res2,rep(sort(unique(filtered_data_mat$mutation_class_cpg)),each = nrow(res)))
+res2 <- data.frame(res2)
+res2$name <- paste0(res2$X1, "[", res2$X3, "]", res2$X2)
+
+# Changing names of matrix to correspond to mutation types and child id
+colnames(mat_count) <- res2$name
+rownames(mat_count) <- sort(unique(filtered_data_mat$Child))
+
+# Making the matrix with counts for maternal data
+for (i in rownames(mat_count)){
+  mat_count[i,mat_data2$mutationtype[mat_data2$Child==i]] <- mat_data2$total_count[mat_data2$Child==i]
+}
+saveRDS(mat_count, "CountMat_MaternalMutations.rds")
+#sum(mat_count==0)/(nrow(mat_count)*ncol(mat_count))
+#hist(rowSums(mat_count))
+#mean(rowSums(mat_count))
+```
+
+
+```{r}
+# Constructing count matrix - paternal mutations ####
+
+# Making a data set with count of each mutation type for each child
+pat_data2 <- filtered_data_pat %>% group_by(Child, mutationtype) %>% summarise(total_count = length(Pos))
+
+# Making a matrix with rows = # children and cols = # mutation types (96)
+pat_count <- matrix(0, nrow = length(unique(filtered_data_pat$Child)), ncol = 96)
+
+# Creating list of all 96 different mutation types
+res <- permutations(4,2,c("A","C","G","T"), repeats.allowed = T, set = F)
+res2 <- res[rep(1:nrow(res), 6),]
+res2 <- cbind(res2,rep(sort(unique(filtered_data_pat$mutation_class_cpg)),each = nrow(res)))
+res2 <- data.frame(res2)
+res2$name <- paste0(res2$X1, "[", res2$X3, "]", res2$X2)
+
+# Changing names of matrix to correspond to mutation types and child id
+colnames(pat_count) <- res2$name
+rownames(pat_count) <- sort(unique(filtered_data_pat$Child))
+
+# Making the matrix with counts for paternal data
+for (i in rownames(pat_count)){
+  pat_count[i,pat_data2$mutationtype[pat_data2$Child==i]] <- pat_data2$total_count[pat_data2$Child==i]
+}
+saveRDS(pat_count, "CountMat_PaternalMutations.rds")
+# sum(pat_count==0)/(nrow(pat_count)*ncol(pat_count))
+# hist(rowSums(pat_count))
+```
+
+
+
+
+For data matrices with k-means grouping structure
+
+
+# Maternal
+```{r}
+set.seed(123)
+
+data_combined <- filtered_data_mat %>% group_by(Child, AGE_MOTHER, AGE_FATHER) %>% summarise(total_count = length(Pos))
+
+# Sort the data by the ages of the parents
+sorted_data <- data_combined %>% arrange(AGE_FATHER, AGE_MOTHER)
+
+clustering <- kmeans(sorted_data[, c("AGE_FATHER", "AGE_MOTHER")], centers = 80)
+
+# Add cluster assignments to the data
+sorted_data <- cbind(sorted_data, cluster = as.factor(clustering$cluster))
+
+mat_groups <- inner_join(filtered_data_mat,sorted_data, "Child")
+mat_groups <- select(mat_groups, -c())
+
+# Constructing count matrix - maternal mutations ####
+
+# Making a data set with count of each mutation type for each child
+mat_data_groups <- mat_groups %>% group_by(cluster, mutationtype) %>% summarise(total_count = length(Pos))
+
+# Making a matrix with rows = # children and cols = # mutation types (96)
+mat_count_groups <- matrix(0, nrow = length(unique(mat_groups$cluster)), ncol = 96)
+
+# Creating list of all 96 different mutation types
+res <- permutations(4,2,c("A","C","G","T"), repeats.allowed = T, set = F)
+res2 <- res[rep(1:nrow(res), 6),]
+res2 <- cbind(res2,rep(sort(unique(filtered_data_mat$mutation_class_cpg)),each = nrow(res)))
+res2 <- data.frame(res2)
+res2$name <- paste0(res2$X1, "[", res2$X3, "]", res2$X2)
+
+# Changing names of matrix to correspond to mutation types and child id
+colnames(mat_count_groups) <- res2$name
+rownames(mat_count_groups) <- sort(unique(mat_groups$cluster))
+
+
+# Making the matrix with counts for maternal data
+for (i in rownames(mat_count_groups)){
+  mat_count_groups[i,mat_data_groups$mutationtype[mat_data_groups$cluster==i]] <- mat_data_groups$total_count[mat_data_groups$cluster==i]
+}
+saveRDS(mat_count_groups, "CountMat_MaternalMutations_grouped.rds")
+
+```
+
+
+
+# Paternal
+```{r}
+
+pat_groups <- inner_join(filtered_data_pat,sorted_data, "Child")
+pat_groups <- select(pat_groups, -c())
+
+# Constructing count matrix - maternal mutations ####
+
+# Making a data set with count of each mutation type for each child
+pat_data_groups <- pat_groups %>% group_by(cluster, mutationtype) %>% summarise(total_count = length(Pos))
+
+# Making a matrix with rows = # children and cols = # mutation types (96)
+pat_count_groups <- matrix(0, nrow = length(unique(pat_groups$cluster)), ncol = 96)
+
+# Creating list of all 96 different mutation types
+res <- permutations(4,2,c("A","C","G","T"), repeats.allowed = T, set = F)
+res2 <- res[rep(1:nrow(res), 6),]
+res2 <- cbind(res2,rep(sort(unique(filtered_data_mat$mutation_class_cpg)),each = nrow(res)))
+res2 <- data.frame(res2)
+res2$name <- paste0(res2$X1, "[", res2$X3, "]", res2$X2)
+
+# Changing names of matrix to correspond to mutation types and child id
+colnames(pat_count_groups) <- res2$name
+rownames(pat_count_groups) <- sort(unique(pat_groups$cluster))
+
+# Making the matrix with counts for maternal data
+for (i in rownames(pat_count_groups)){
+  pat_count_groups[i,pat_data_groups$mutationtype[pat_data_groups$cluster==i]] <- pat_data_groups$total_count[pat_data_groups$cluster==i]
+}
+saveRDS(pat_count_groups, "CountMat_PaternalMutations_grouped.rds")
+
+```
