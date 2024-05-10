@@ -1,0 +1,181 @@
+---
+title: "Clustering maternal"
+output: html_document
+date: '2024-04-15'
+---
+
+```{r setup-chunk, include=FALSE}
+knitr::opts_chunk$set(dev = "jpg",
+                      dpi = 300,
+                      cache = TRUE)
+```
+
+```{r}
+# Libraries, working directory etc.
+setwd("~/Desktop/Trio data/")
+# rm(list = ls())
+library(tidyverse)
+library(gridExtra)
+library(ggplot2)
+library(readr)
+library(gtools)
+library(dplyr)
+library(lsa)
+theme_set(theme_bw())
+```
+
+```{r}
+# Loading Poisson update function and NB update function
+source("~/Desktop/Trio data/Poisson updates function.R")
+```
+
+```{r}
+# Loading the trio data
+load("filtered_data_pat.RData")
+load("filtered_data_mat.RData")
+
+# Loading the matrices grouped by parents age with 40 groups
+pat_data_matrix_40 <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_PaternalMutations_grouped_40.rds")
+mat_data_matrix_40 <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_MaternalMutations_grouped_40.rds")
+
+# Loading the matrices grouped by parents age with 119 groups
+pat_data_matrix_119 <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_PaternalMutations_grouped_119.rds")
+mat_data_matrix_119 <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_MaternalMutations_grouped_119.rds")
+
+# Loading the full data matrices
+full_pat_data_matrix <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_PaternalMutations.rds")
+full_mat_data_matrix <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_MaternalMutations.rds")
+```
+
+
+```{r}
+# Making the hierarchical clusters
+hc.complete <- hclust(dist(full_pat_data_matrix), method = "complete")
+hc.average <- hclust(dist(full_pat_data_matrix), method = "average")
+hc.single <- hclust(dist(full_pat_data_matrix), method = "single")
+```
+
+
+```{r}
+# Add a column with a color depending on the age of the father
+
+pat_data_clust <- filtered_data_mat %>% group_by(Child, AGE_FATHER, AGE_MOTHER) %>% summarise(total_count = length(Pos))
+# Define the range of ages
+min_age <- min(pat_data_clust$AGE_MOTHER)
+max_age <- max(pat_data_clust$AGE_MOTHER)
+
+min_age_pat <- min(pat_data_clust$AGE_FATHER)
+max_age_pat <- max(pat_data_clust$AGE_FATHER)
+
+# Custom function to generate a color gradient
+generate_gradient <- function(age) {
+  # Normalize age between 0 and 1
+  normalized_age <- (age - min_age) / (max_age - min_age)
+  # Generate gradient from light yellow to dark red
+  gradient <- rgb(255, 255 * (1 - normalized_age), 0, maxColorValue = 255)
+  return(gradient)
+}
+
+generate_gradient_pat <- function(age) {
+  # Normalize age between 0 and 1
+  normalized_age <- (age - min_age_pat) / (max_age_pat - min_age_pat)
+  # Generate gradient from light yellow to dark red
+  gradient <- rgb(255, 255 * (1 - normalized_age), 0, maxColorValue = 255)
+  return(gradient)
+}
+
+
+# Add a column with colors based on the age of the mother
+pat_data_clust <- pat_data_clust %>%
+  mutate(colour = generate_gradient(AGE_MOTHER), colour_pat = generate_gradient_pat(AGE_FATHER))
+plot(pat_data_clust$AGE_MOTHER, col = pat_data_clust$colour)
+```
+
+```{r}
+# Add a column with colors based on the age of the mother
+plot(pat_data_clust$AGE_FATHER, col = pat_data_clust$colour_pat)
+```
+
+
+```{r, fig.width= 10, fig.height=3.5}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1),cex = 1 ,mgp = c(1.5, 0.5, 0))
+library(dendextend)
+
+# Create the dendrograms
+hc.complete <- hclust(dist(full_mat_data_matrix), method = "complete")
+hcd_comp <- as.dendrogram(hc.complete)
+hc.average <- hclust(dist(full_mat_data_matrix), method = "average")
+hcd_avg <- as.dendrogram(hc.average)
+
+# Extract the child IDs from the dendrogram
+dend_ids <- labels(hcd_comp)
+dend_ids_avg <- labels(hcd_avg)
+
+
+# Match child IDs from the dendrogram with pat_data_clust
+matched_rows <- match(dend_ids, pat_data_clust$Child)
+matched_rows_avg <- match(dend_ids_avg, pat_data_clust$Child)
+
+# Extract colors for the father's age based on matched rows
+branch_colors <- pat_data_clust$colour[matched_rows]
+branch_colors_avg <- pat_data_clust$colour[matched_rows_avg]
+
+branch_colors_pat <- pat_data_clust$colour_pat[matched_rows]
+branch_colors_avg_pat <- pat_data_clust$colour_pat[matched_rows_avg]
+
+
+# Color the branches using the extracted colors
+dend_comp <- color_branches(hcd_comp, col = branch_colors)
+dend_avg <- color_branches(hcd_avg, col = branch_colors_avg)
+
+dend_comp_pat <- color_branches(hcd_comp, col = branch_colors_pat)
+dend_avg_pat <- color_branches(hcd_avg, col = branch_colors_avg_pat)
+
+# Plot the dendrogram
+#plot(dend_comp)
+#plot(dend_avg)
+
+# This is to make it in the right order!! 
+pat_data_clust <- pat_data_clust %>% arrange(AGE_MOTHER)
+ordered_hcd <- reorder(dend_avg, pat_data_clust$AGE_MOTHER)
+ordered_comp <- reorder(dend_comp, pat_data_clust$AGE_MOTHER)
+
+pat_data_clust <- pat_data_clust %>% arrange(AGE_FATHER)
+ordered_hcd_pat <- reorder(dend_avg_pat, pat_data_clust$AGE_FATHER)
+ordered_comp_pat <- reorder(dend_comp_pat, pat_data_clust$AGE_FATHER)
+plot(ordered_hcd)
+plot(ordered_hcd_pat)
+#plot(ordered_comp)
+
+
+```
+
+
+```{r, fig.width= 10, fig.height=3.5}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(1,1),cex = 1 ,mgp = c(1.5, 0.5, 0))
+# Which ones are the small clusters in the top???
+cut <- cutree(ordered_hcd, k = 2)
+
+# Which are the ones sorted into cluster 2?
+cut[cut==2]
+
+# Finding their information
+pat_data_clust[which(pat_data_clust$Child == 148093),]
+
+# The two above are sorted in their own cluster. Why? Maybe make a plot with age/number of mutations, and color these two points in their own color
+pat_data_clust$colour <- ifelse(pat_data_clust$Child == 148093, "Red", "Black")
+
+# Overall plot of mutations - here we don't see a reason why those two should be clustered together
+ggplot(pat_data_clust, aes(x = AGE_MOTHER, y = total_count)) + geom_point(colour = pat_data_clust$colour) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) +
+  labs(x = "Age of mother", y = "Number of mutations")
+
+
+# Checking cosine similarity between odd one out and the rest
+child1 <- full_pat_data_matrix["148093",]
+mean_all <- apply(full_pat_data_matrix,2,mean)
+
+cosine(child1, mean_all) # 0.43
+
+```
