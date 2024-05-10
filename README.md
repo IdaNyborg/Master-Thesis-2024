@@ -9,4 +9,6 @@ This GitHub page contains all code used in the master thesis project by Ida Nybo
 
 "Trio data intro" contains introductionary plots and numbers for the paternal and maternal datasets
 
+"Clustering" contains code for why the paternal data should be grouped due to age of the parents
+
 
