@@ -11,4 +11,4 @@ This GitHub page contains all code used in the master thesis project by Ida Nybo
 
 "Clustering" contains code for why the paternal data should be grouped due to age of the parents
 
-
+"Clustering maternal" contains code for why the maternal data should be grouped due to age of the parents
