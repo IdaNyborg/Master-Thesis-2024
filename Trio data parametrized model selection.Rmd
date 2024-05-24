@@ -1,0 +1,276 @@
+---
+title: "Trio data parametrized model selection"
+output: html_document
+date: '2024-04-29'
+---
+
+```{r setup, include=FALSE}
+# To set a seed used for all. There is random initialization in the update functions
+knitr::opts_chunk$set(seed = 123)
+set.seed(NULL)
+knitr::opts_chunk$set(seed = NULL)
+```
+
+```{r}
+# Libraries, working directory etc.
+setwd("~/Desktop/Trio data/")
+# rm(list = ls())
+library(tidyverse)
+library(gridExtra)
+library(ggplot2)
+library(readr)
+library(gtools)
+library(dplyr)
+library(lsa)
+theme_set(theme_bw())
+# Library for Hungarian method
+library(clue)
+```
+
+```{r}
+# Loading Poisson update function and NB update function
+source("~/Desktop/Trio data/Poisson updates function (1).R")
+```
+
+```{r}
+# Loading the trio data
+load("filtered_data_pat.RData")
+load("filtered_data_mat.RData")
+
+# Loading the full data matrices
+full_pat_data_matrix <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_PaternalMutations.rds")
+full_mat_data_matrix <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_MaternalMutations.rds")
+
+# COSMIC signatures
+COSMIC_v3.3.1_SBS_GRCh37 <- read.delim("~/Desktop/Trio data/COSMIC_v3.3.1_SBS_GRCh37.txt")
+```
+
+
+## Finding number of signatures
+
+Creating design matrices
+```{r}
+# Create design matrices for the full dataset
+
+# Group data for use in the design matrices
+data3 <- filtered_data_pat %>% group_by(Child, AGE_FATHER, AGE_MOTHER) %>% summarise(total_count = length(Pos))
+
+# Number of trios
+N <- dim(full_pat_data_matrix)[1]
+K <- 3
+
+# Design matrix paternal
+design_matrix_pat <- matrix(NA, nrow = N, ncol = 2)
+design_matrix_pat[, 1] <- rep(1, N)
+design_matrix_pat[, 2] <- data3$AGE_FATHER
+rownames(design_matrix_pat) <- data3$Child
+
+# Design matrix maternal
+design_matrix_mat <- matrix(NA, nrow = N, ncol = 2)
+design_matrix_mat[, 1] <- rep(1, N)
+design_matrix_mat[, 2] <- data3$AGE_MOTHER
+rownames(design_matrix_mat) <- data3$Child
+
+
+# Defining an empty matrix for the beta values
+betas <- matrix(NA, nrow = 2, ncol = K)
+colnames(betas) <- c("Sig1", "Sig2", "Sig3")
+
+```
+
+
+```{r, warning = FALSE}
+# For choosing number of signatures
+K <- c(2,3,4,5,6,7,8,9,10,11,12)
+Iter <- 10000
+V_full <- full_pat_data_matrix
+V_full_mat <- full_mat_data_matrix
+```
+
+### Paternal
+
+
+
+# BIC for parametrized
+```{r, warning=FALSE}
+# BIC for Poisson, both groups
+results_BIC_full <- BIC_val_param_new(V_full,K, design_matrix_pat, Iter, poisson_updates_param)
+BIC_values_full <- results_BIC_full$BIC_values
+
+
+# Combine BIC values and corresponding K values into data frames
+data_full <- data.frame(K = K, BIC = BIC_values_full, Dataset = "All groups")
+
+# Plot using ggplot2
+ggplot(data_full, aes(x = K, y = BIC, color = Dataset)) +
+  geom_point() +
+  labs(x = "Number of Signatures", y = "BIC Value", title = "BIC for Poisson Updates") +
+  theme_minimal() +
+  scale_color_manual(values = c("40 groups" = "blue", "119 groups" = "red", "All groups" = "forestgreen")) + 
+    scale_x_continuous(breaks = data_full$K, labels = data_full$K) +
+  theme(axis.text = element_text(size = 14), axis.title = element_text(size = 14))
+
+
+BIC_values_full
+results_BIC_full$parameters
+results_BIC_full$loglik
+```
+
+
+
+```{r, warning = FALSE}
+# Cross validation for parametrized updates
+J <- 5
+results_cross_val <- cross_val_param(V_full, K, design_matrix_pat, Iter, J, poisson_updates_param, save_interval = 1)
+```
+
+
+```{r}
+first <- readRDS("cross_val_progress.RDS")
+second <- readRDS("cross_val_progress_11.RDS")
+third <- readRDS("cross_val_progress_12.RDS")
+cross_val <- cbind(first$Cost, second$Cost[,1], third$Cost[,1])
+cross_val_median <- apply(cross_val,2,median)
+K <- c(2,3,4,5,6,7,8,9,10,11,12)
+```
+
+
+
+```{r}
+Cost_param <- results_cross_val$Cost_median
+Cost_param_int <- results_cross_val$Cost
+
+Cost_param <- cross_val_median
+Cost_param_int <- cross_val
+
+# Calculate mean and standard deviation of cost values for each K
+mean_cost_param_int <- apply(Cost_param_int, 2, mean)
+sd_cost_param_int <- apply(Cost_param_int, 2, sd)
+
+# Combine mean and standard deviation into data frames
+confidence_data_param <- data.frame(K = K, Mean_Cost = mean_cost_param_int, SD_Cost = sd_cost_param_int, Dataset = "Parametrized model")
+
+# Combine cross validation values and corresponding K values into data frames
+data_param <- data.frame(K = K, Cost = Cost_param, Dataset = "Parametrized model")
+
+library(scales)
+# Plot using ggplot2
+ggplot(data_param, aes(x = K, y = Cost, color = Dataset)) +
+  geom_point() +
+  geom_line(data = data_param, aes(x = K, y = Cost, color = Dataset, group = Dataset)) + 
+  geom_ribbon(data = confidence_data_param, aes(x = K, y = Mean_Cost, ymin = Mean_Cost - SD_Cost, ymax = Mean_Cost + SD_Cost, fill = Dataset), alpha = 0.3) +
+  labs(x = "Number of Signatures", y = "Kullback-Leibler divergence") +
+  theme_minimal() +
+  scale_color_manual(values = c("Parametrized model" = "forestgreen", "119 groups" = "red", "All groups" = "green")) + 
+  scale_fill_manual(values = c("Parametrized model" = "#90EE90", "119 groups" = "lightcoral", "All groups" = "lightgreen")) + 
+  theme(axis.text = element_text(size = 14), axis.title = element_text(size = 14), , legend.text = element_text(size = 14), legend.title = element_text(size = 14)) +
+  scale_x_continuous(breaks = data_param$K, labels = data_param$K) +
+  guides(color = "none", fill = "none")
+```
+
+
+
+### Maternal
+
+
+# BIC for parametrized
+```{r, fig.width= 10, fig.height=3.5}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1), cex = 1, mgp = c(1.5, 0.5, 0))
+# BIC for Poisson, both groups
+results_BIC_full_mat <- BIC_val_param(V_full_mat,K, design_matrix_mat, Iter, poisson_updates_param)
+BIC_values_full_mat <- results_BIC_full_mat$BIC_values
+
+
+K <- c(2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20)
+BIC_values_full_mat <- readRDS("Cross_val_BIC_param_maternal.rds")$BIC
+# Combine BIC values and corresponding K values into data frames
+data_full_mat <- data.frame(K = K, BIC = BIC_values_full_mat, Dataset = "All groups")
+
+# Plot using ggplot2
+ggplot(data_full_mat, aes(x = K, y = BIC, color = Dataset)) +
+  geom_point() +
+  labs(x = "Number of Signatures", y = "BIC Value") +
+  theme_minimal() +
+  scale_color_manual(values = c("40 groups" = "blue", "119 groups" = "red", "All groups" = "forestgreen")) + 
+  theme(axis.text = element_text(size = 20), axis.title = element_text(size = 20), legend.position = "none") +  
+  scale_x_continuous(breaks = data_full_mat$K, labels = data_full_mat$K)
+
+```
+
+
+
+```{r, warning = FALSE}
+# Cross validation for parametrized updates
+set.seed(123)
+J <- 1
+results_cross_val_mat <- cross_val_param(V_full_mat, K, design_matrix_mat, Iter, J, poisson_updates_param)
+results_cross_val_mat$Cost
+```
+
+
+
+```{r, fig.width= 10, fig.height=3.5}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1), cex = 1, mgp = c(1.5, 0.5, 0))
+Cost_param_mat <- results_cross_val_mat$Cost_median
+Cost_param_int_mat <- results_cross_val_mat$Cost
+
+# Calculate mean and standard deviation of cost values for each K
+mean_cost_param_int_mat <- apply(Cost_param_int_mat, 2, mean)
+sd_cost_param_int_mat <- apply(Cost_param_int_mat, 2, sd)
+
+# Combine mean and standard deviation into data frames
+confidence_data_param_mat <- data.frame(K = K, Mean_Cost = mean_cost_param_int_mat, SD_Cost = sd_cost_param_int_mat, Dataset = "Parametrized model")
+
+# Combine cross validation values and corresponding K values into data frames
+data_param_mat <- data.frame(K = K, Cost = Cost_param_mat, Dataset = "Parametrized model")
+
+library(scales)
+# Plot using ggplot2
+ggplot(data_param_mat, aes(x = K, y = Cost, color = Dataset)) +
+  geom_point() +
+  geom_line(data = data_param_mat, aes(x = K, y = Cost, color = Dataset, group = Dataset)) + 
+  geom_ribbon(data = confidence_data_param_mat, aes(x = K, y = Mean_Cost, ymin = Mean_Cost - SD_Cost, ymax = Mean_Cost + SD_Cost, fill = Dataset), alpha = 0.3) +
+  labs(x = "Number of Signatures", y = "Kullback-Leibler divergence") +
+  theme_minimal() +
+  scale_color_manual(values = c("Parametrized model" = "forestgreen", "119 groups" = "red", "All groups" = "green")) + 
+  scale_fill_manual(values = c("Parametrized model" = "#90EE90", "119 groups" = "lightcoral", "All groups" = "lightgreen")) + 
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18), , legend.text = element_text(size = 18), legend.title = element_text(size = 18)) +
+  scale_x_continuous(breaks = data_param_mat$K, labels = data_param_mat$K) +
+  guides(color = "none", fill = "none")
+```
+
+
+```{r}
+saveRDS(list(Cost_param_int_mat = Cost_param_int_mat, Cost = Cost_param_mat, BIC = BIC_values_full_mat), file = "Cross_val_BIC_param_maternal.RDS")
+```
+
+
+
+
+
+### Paternal BIC plot
+
+```{r}
+BIC_values <- c(210331.5, 211859.9, 213985.3, 214771.9, 215860.1, 216958.8, 217310.9, 219004.9, 221447.7, 221925.6, 222828.6, 224259.5, 226527.0, 227393.2)
+K <- c(2,3,4,5,6,7,8,9,10,11,12,13,14,15)
+```
+
+
+```{r, fig.width= 10, fig.height=3.5}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1), cex = 1, mgp = c(1.5, 0.5, 0))
+# BIC for Poisson, both groups
+
+
+# Combine BIC values and corresponding K values into data frames
+data_full_pat <- data.frame(K = K, BIC = BIC_values, Dataset = "All groups")
+
+# Plot using ggplot2
+ggplot(data_full_pat, aes(x = K, y = BIC, color = Dataset)) +
+  geom_point() +
+  labs(x = "Number of Signatures", y = "BIC Value") +
+  theme_minimal() +
+  scale_color_manual(values = c("All groups" = "forestgreen")) + 
+  theme(axis.text = element_text(size = 20), axis.title = element_text(size = 20), legend.position = "none") +
+    scale_x_continuous(breaks = data_full_pat$K, labels = data_full_pat$K)
+
+```

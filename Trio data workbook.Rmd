@@ -1,0 +1,878 @@
+---
+title: "Trio data workbook"
+output:
+  html_document: default
+  pdf_document: default
+date: '2024-02-28'
+---
+
+```{r setup, include=FALSE}
+# To set a seed used for all. There is random initialization in the update functions
+knitr::opts_chunk$set(seed = 123)
+```
+
+```{r}
+# Libraries, working directory etc.
+setwd("~/Desktop/Trio data/")
+rm(list = ls())
+library(tidyverse)
+library(gridExtra)
+library(ggplot2)
+library(readr)
+library(gtools)
+library(dplyr)
+library(lsa)
+theme_set(theme_bw())
+# Library for Hungarian method
+library(clue)
+```
+
+```{r}
+# Loading Poisson update function and NB update function
+source("~/Desktop/Trio data/Poisson updates function.R")
+```
+
+```{r}
+# Loading the trio data
+load("grouped_data_pat.RData")
+load("grouped_data_mat.RData")
+
+# Loading the matrices grouped by parents age with 40 groups
+pat_data_matrix_grouped <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_PaternalMutations_grouped.rds")
+mat_data_matrix_grouped <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_MaternalMutations_grouped.rds")
+
+# Loading the full data matrices
+full_pat_data_matrix <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_PaternalMutations.rds")
+full_mat_data_matrix <- readRDS("/Users/idajorgensen/Desktop/Trio data/CountMat_MaternalMutations.rds")
+
+# COSMIC signatures
+COSMIC_v3.3.1_SBS_GRCh37 <- read.delim("~/Desktop/Trio data/COSMIC_v3.3.1_SBS_GRCh37.txt")
+
+# Germline signatures
+age_signatures <- readRDS("GermlineSignaturesSunyaev96types.rds")
+age_signatures <- cbind(rownames(age_signatures), age_signatures)
+colnames(age_signatures)[colnames(age_signatures) == "rownames(age_signatures)"] <- "Type"
+age_signatures[age_signatures == 0] <- 1e-10
+```
+
+
+```{r}
+# Initializing data
+V_grouped_pat <- pat_data_matrix_grouped
+V_grouped_mat <- mat_data_matrix_grouped
+Iter <- 10000
+V_full_pat <- full_pat_data_matrix
+V_full_mat <- full_mat_data_matrix
+```
+
+
+### Paternal data!
+
+## For the paternal data, we are choosing 4 signatures!
+
+```{r, fig.width= 10, fig.height=4.5, warning = FALSE}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1), cex = 1, mgp = c(1.5, 0.5, 0))
+# Checking to see if exposures are age dependent - paternal
+
+K <- 4
+# results_grouped_pat <- poisson_updates(V_grouped_pat, K, Iter)
+# saveRDS(list(H_grouped_pat = results_grouped_pat$H, W_grouped_pat = results_grouped_pat$W, D_kl = results_grouped_pat$D_kl, counter = results_grouped_pat$counter, logLik = results_grouped_pat$loglik), file = "paternal_normal_nmf_final_results.RDS")
+
+
+# H_grouped_pat <- results_grouped_pat$H
+# W_grouped_pat <- results_grouped_pat$W
+
+H_grouped_pat <- readRDS("paternal_normal_nmf_final_results.RDS")$H
+W_grouped_pat <- readRDS("paternal_normal_nmf_final_results.RDS")$W
+
+# Finding the accuracy of the estimation
+# print("Kullback-Leibler divergence between V and WH for final step")
+# print(tail(results_grouped_pat$D_kl, n = 1))
+
+# Finding the relation between the age of the parent and the exposure
+W_grouped_pat <- cbind(W_grouped_pat, rownames(W_grouped_pat))
+W_grouped_pat <- as.data.frame(W_grouped_pat)
+colnames(W_grouped_pat) <- c("Exposure_Signature1", "Exposure_Signature2", "Exposure_Signature3", "Exposure_Signature4", "Group")
+
+filtered_data_pat_grouped <- grouped_data_pat %>% select(Group, AGE_FATHER, Child) %>% group_by(Group) %>% summarise(AGE_FATHER = mean(AGE_FATHER), count = length(unique(Child)))
+new_grouped_pat <- inner_join(filtered_data_pat_grouped, W_grouped_pat, by = "Group")
+new_grouped_pat <- as.data.frame(new_grouped_pat)
+new_grouped_pat$Exposure_Signature1 <- as.numeric(new_grouped_pat$Exposure_Signature1)
+new_grouped_pat$Exposure_Signature2 <- as.numeric(new_grouped_pat$Exposure_Signature2)
+new_grouped_pat$Exposure_Signature3 <- as.numeric(new_grouped_pat$Exposure_Signature3)
+new_grouped_pat$Exposure_Signature4 <- as.numeric(new_grouped_pat$Exposure_Signature4)
+
+
+p1 <- ggplot(new_grouped_pat, aes(x = AGE_FATHER, y = Exposure_Signature1 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +   geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature1 / count ~ AGE_FATHER, data = new_grouped_pat))[1], 4), 
+                         "Slope:", round(coef(lm(Exposure_Signature1 / count ~ AGE_FATHER, data = new_grouped_pat))[2], 4))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) + 
+  labs(y = "Exposure for s1", x = "Age of father") 
+p2 <- ggplot(new_grouped_pat, aes(x = AGE_FATHER, y = Exposure_Signature2 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +   geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature2 / count ~ AGE_FATHER, data = new_grouped_pat))[1], 4), 
+                         "Slope:", round(coef(lm(Exposure_Signature2 / count ~ AGE_FATHER, data = new_grouped_pat))[2], 4))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) +
+  labs(y = "Exposure for s2", x = "Age of father")
+p3 <- ggplot(new_grouped_pat, aes(x = AGE_FATHER, y = Exposure_Signature3 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +       geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature3 / count ~ AGE_FATHER, data = new_grouped_pat))[1], 4), 
+                         "Slope:", round(coef(lm(Exposure_Signature3 / count ~ AGE_FATHER, data = new_grouped_pat))[2], 4))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) +
+  labs(y = "Exposure for s3", x = "Age of father")
+p4 <- ggplot(new_grouped_pat, aes(x = AGE_FATHER, y = Exposure_Signature4 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +       geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature4 / count ~ AGE_FATHER, data = new_grouped_pat))[1], 4), 
+                         "Slope:", round(coef(lm(Exposure_Signature4 / count ~ AGE_FATHER, data = new_grouped_pat))[2], 4))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) +
+  labs(y = "Exposure for s4", x = "Age of father") 
+
+
+# Find the maximum y-value across all plots
+max_y <- max(c(max(new_grouped_pat$Exposure_Signature1 / new_grouped_pat$count),
+               max(new_grouped_pat$Exposure_Signature2 / new_grouped_pat$count),
+               max(new_grouped_pat$Exposure_Signature3 / new_grouped_pat$count),
+               max(new_grouped_pat$Exposure_Signature4 / new_grouped_pat$count)))
+
+min_y <- min(c(min(new_grouped_pat$Exposure_Signature1 / new_grouped_pat$count),
+               min(new_grouped_pat$Exposure_Signature2 / new_grouped_pat$count),
+               min(new_grouped_pat$Exposure_Signature3 / new_grouped_pat$count),
+               min(new_grouped_pat$Exposure_Signature4 / new_grouped_pat$count)))
+
+# Apply the same y-axis limits to all plots
+p1 <- p1 + coord_cartesian(ylim = c(min_y, max_y))
+p2 <- p2 + coord_cartesian(ylim = c(min_y, max_y))
+p3 <- p3 + coord_cartesian(ylim = c(min_y, max_y))
+p4 <- p4 + coord_cartesian(ylim = c(min_y, max_y))
+
+grid.arrange(p1,p2,p3,p4, nrow = 2)
+```
+
+
+```{r}
+
+# Convert the data into long format
+W_grouped_pat_long <- pivot_longer(W_grouped_pat, cols = starts_with("Exposure_Signature"), names_to = "Exposure", values_to = "Value")
+
+# Calculate the total value for each group
+W_grouped_pat_long$Value <- as.numeric(W_grouped_pat_long$Value)
+group_totals <- W_grouped_pat_long %>%
+  group_by(Group) %>%
+  summarise(total = sum(Value))
+
+# Merge the group totals with the long format dataset
+W_grouped_pat_long <- left_join(W_grouped_pat_long, group_totals, by = "Group")
+
+# Calculate the proportion of each Exposure Signature within each group
+W_grouped_pat_long <- W_grouped_pat_long %>%
+  mutate(Proportion = Value / total * 100)
+
+# Create stacked barplot
+ggplot(W_grouped_pat_long, aes(x = factor(Group), y = Proportion, fill = Exposure)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Group", y = "Percentage", fill = "Exposure") +
+  theme_minimal()
+
+# Convert the "Group" variable to a factor with levels ordered by group number
+W_grouped_pat_long$Group <- factor(W_grouped_pat_long$Group, levels = unique(W_grouped_pat_long$Group))
+
+# Create stacked barplot with ordered groups
+ggplot(W_grouped_pat_long, aes(x = Group, y = Proportion, fill = Exposure)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Group", y = "Percentage", fill = "Exposure") +
+  theme_minimal()
+```
+
+
+## Doing it by age of the parent
+```{r}
+
+# Convert the data into long format
+W_grouped_pat_long <- pivot_longer(new_grouped_pat, cols = starts_with("Exposure_Signature"), names_to = "Exposure", values_to = "Value")
+W_grouped_pat_long$AGE_FATHER <- round(W_grouped_pat_long$AGE_FATHER,0)
+
+# Calculate the total value for each group
+W_grouped_pat_long$Value <- as.numeric(W_grouped_pat_long$Value)
+group_totals <- W_grouped_pat_long %>%
+  group_by(AGE_FATHER) %>%
+  summarise(total = sum(Value))
+
+# Merge the group totals with the long format dataset
+W_grouped_pat_long <- left_join(W_grouped_pat_long, group_totals, by = "AGE_FATHER")
+
+# Calculate the proportion of each Exposure Signature within each group
+W_grouped_pat_long <- W_grouped_pat_long %>%
+  mutate(Proportion = Value / total * 100)
+
+# Create stacked barplot
+custom_labels <- c("Exposure_Signature1" = "Exposure for s1", "Exposure_Signature2" = "Exposure for s2", "Exposure_Signature3" = "Exposure for s3", "Exposure_Signature4" = "Exposure for s4")
+
+barplot_pat <- ggplot(W_grouped_pat_long, aes(x = factor(AGE_FATHER), y = Proportion, fill = Exposure)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Age of father", y = "Exposure in %") +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12, angle = 270, vjust = 0.5, hjust = 1),  # Rotate x-axis labels
+        axis.title = element_text(size = 18), 
+        legend.text = element_text(size = 18), 
+        legend.title = element_blank(),
+        legend.position = "top",  # Place legend on top
+        legend.box = "horizontal") +  # Display legend as a single line
+  scale_fill_discrete(labels = custom_labels)
+
+barplot_pat
+```
+
+
+
+```{r}
+# Convert the data to a data frame
+df <- data.frame(x = 1:ncol(H_grouped_pat), y = t(H_grouped_pat))
+# Create a new variable to group bars into sets of 6
+df <- cbind(df, rownames(df))
+colnames(df) <- c("x", "Signature1", "Signature2", "Signature3", "Signature4", "Mutationtype")
+df$Mutation <- cleaned_values <- substr(df$Mutationtype, 3, nchar(df$Mutationtype) - 2)
+# df$mutation <- factor(rep(1:ceiling(nrow(df)/16), each = 16)[1:nrow(df)], levels = unique(rep(1:ceiling(nrow(df)/16), each = 16)))
+
+# Define a color palette
+colors <- c("skyblue", "salmon", "green", "purple", "orange", "forestgreen")
+```
+
+
+```{r, fig.width= 10, fig.height=, warning = FALSE}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1), cex = 1, mgp = c(1.5, 0.5, 0))
+## The good signature plot!!!
+
+H_df <- pivot_longer(df, Signature1:Signature4)
+names(H_df)[names(H_df) == "value"] <- "Intensity"
+
+ggplot(H_df) +
+  geom_col(aes(Mutationtype, y = Intensity, fill = Mutation)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, size = 6), legend.position = "none", strip.text = element_text(size = 18)) +
+  facet_grid(vars(name), vars(Mutation), scales = "free_x") + 
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18), axis.text.x = element_text(size = 10))
+```
+
+
+
+
+
+
+
+```{r}
+# To compare with COSMIC signatures with cosine similarities - 40 groups
+d <- dim(H_grouped_pat)[1]
+
+# To make sure the mutation types match with the COSMIC dataset
+H_grouped_pat <- H_grouped_pat[, match(COSMIC_v3.3.1_SBS_GRCh37$Type, colnames(H_grouped_pat))]
+
+# Function to calculate Kullback-Leibler divergence
+kl_divergence <- function(p, q) {
+  sum(p * log(p / q))
+}
+
+# Initialize matrices to save results
+similarities <- matrix(ncol = d, nrow = dim(COSMIC_v3.3.1_SBS_GRCh37)[2]-1)
+similarities_abs_diff <- matrix(ncol = d, nrow = dim(COSMIC_v3.3.1_SBS_GRCh37)[2]-1)
+similarities_KL_div <- matrix(ncol = d, nrow = dim(COSMIC_v3.3.1_SBS_GRCh37)[2]-1)
+
+# Iterate over all signatures, to find which COSMIC signature it is the closest to
+for (j in 1:dim(H_grouped_pat)[1]) {
+  for (i in 1:(dim(COSMIC_v3.3.1_SBS_GRCh37)[2]-1)) {
+    similarities[i,j] <- cosine(H_grouped_pat[j,], COSMIC_v3.3.1_SBS_GRCh37[,i+1])
+    similarities_abs_diff[i,j] <- sum(abs(H_grouped_pat[j,] - COSMIC_v3.3.1_SBS_GRCh37[,i+1]))
+    similarities_KL_div[i,j] <- kl_divergence(H_grouped_pat[j,], COSMIC_v3.3.1_SBS_GRCh37[,i+1])
+  }
+}
+
+# Apply the function to each column of the matrix to find SBS signatures that match
+results <- apply(similarities, 2, find_max_second)
+results_abs_diff <- apply(similarities_abs_diff, 2, find_min_second)
+
+# Display the results
+for (i in 1:ncol(similarities)) {
+  cat("**Signature", i, ":**\n")
+  cat("SBS signature with highest cosine similarity:", colnames(COSMIC_v3.3.1_SBS_GRCh37[results[[i]]$max_idx + 1]), "\n")
+  cat("Cosine similarity value:", results[[i]]$max_val, "\n")
+  cat("SBS signature with second highest cosine similarity:", colnames(COSMIC_v3.3.1_SBS_GRCh37[results[[i]]$second_idx + 1]), "\n")
+  cat("Cosine similarity value:", results[[i]]$second_val, "\n\n")
+  cat("SBS signature with lowest absolute difference:", colnames(COSMIC_v3.3.1_SBS_GRCh37[results_abs_diff[[i]]$min_idx + 1]), "\n")
+  cat("Absolute difference value:", results_abs_diff[[i]]$min_val, "\n")
+  cat("SBS signature with second lowest absolute difference:", colnames(COSMIC_v3.3.1_SBS_GRCh37[results_abs_diff[[i]]$second_idx + 1]), "\n")
+  cat("Absolute difference value:", results_abs_diff[[i]]$second_val, "\n\n")
+}
+```
+
+
+```{r}
+# With the Hungarian algorithm
+
+# Want the largest cosine similarity
+similarities_hung <- 1-similarities
+
+solve_LSAP(t(similarities_hung))
+
+similarities[76,1]
+similarities[71,2]
+similarities[5,3]
+similarities[6,4]
+
+# Want the smallest abs diff
+solve_LSAP(t(similarities_abs_diff))
+
+similarities_abs_diff[71,4]
+
+solve_LSAP(t(similarities_KL_div))
+
+similarities_KL_div[76,1]
+similarities_KL_div[71,2]
+similarities_KL_div[3,3]
+similarities_KL_div[5,4]
+
+
+```
+
+
+## Age signatures
+
+```{r}
+# To compare with COSMIC signatures with cosine similarities - 40 groups
+d <- dim(H_grouped_pat)[1]
+
+# To make sure the mutation types match with the COSMIC dataset
+H_grouped_pat <- H_grouped_pat[, match(age_signatures$Type, colnames(H_grouped_pat))]
+
+# Initialize matrices to save results
+similarities <- matrix(ncol = d, nrow = dim(age_signatures)[2]-1)
+similarities_abs_diff <- matrix(ncol = d, nrow = dim(age_signatures)[2]-1)
+similarities_KL_div <- matrix(ncol = d, nrow = dim(age_signatures)[2]-1)
+
+
+# Iterate over all signatures, to find which COSMIC signature it is the closest to
+for (j in 1:dim(H_grouped_pat)[1]) {
+  for (i in 1:(dim(age_signatures)[2]-1)) {
+    similarities[i,j] <- cosine(H_grouped_pat[j,],age_signatures[,i+1])
+    similarities_abs_diff[i,j] <- sum(abs(H_grouped_pat[j,] - age_signatures[,i+1]))
+    similarities_KL_div[i,j] <- kl_divergence(H_grouped_pat[j,], age_signatures[,i+1])
+  }
+}
+
+# Apply the function to each column of the matrix to find SBS signatures that match
+results <- apply(similarities, 2, find_max_second)
+results_abs_diff <- apply(similarities_abs_diff, 2, find_min_second)
+```
+
+
+```{r}
+# With the Hungarian algorithm
+
+# Want the largest cosine similarity
+similarities_hung <- 1-similarities
+
+solve_LSAP(t(similarities_hung))
+
+
+similarities[1,1]
+similarities[2,2]
+similarities[6,3]
+similarities[7,4]
+
+
+# Want the smallest abs diff
+solve_LSAP(t(similarities_abs_diff))
+
+similarities_abs_diff[3,1]
+similarities_abs_diff[1,2]
+similarities_abs_diff[2,3]
+similarities_abs_diff[6,4]
+
+solve_LSAP(t(similarities_KL_div))
+
+similarities_KL_div[5,1]
+similarities_KL_div[2,2]
+similarities_KL_div[1,3]
+similarities_KL_div[6,4]
+
+```
+
+
+
+
+
+
+
+
+
+
+
+### Maternal!!!
+
+# For the maternal data we are choosing 6 signatures
+```{r, fig.width= 10, fig.height=6.5, warning = FALSE}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1), cex = 1, mgp = c(1.5, 0.5, 0))
+# Checking to see if exposures are age dependent - paternal
+
+K <- 6
+# results_grouped_mat <- poisson_updates(V_grouped_mat, K, Iter)
+# saveRDS(list(H_grouped_mat = results_grouped_mat$H, W_grouped_mat = results_grouped_mat$W, D_kl = results_grouped_mat$D_kl, counter = results_grouped_mat$counter, logLik = results_grouped_mat$loglik), file = "maternal_normal_nmf_final_results.RDS")
+
+
+# H_grouped_pat <- results_grouped_pat$H
+# W_grouped_pat <- results_grouped_pat$W
+
+H_grouped_mat <- readRDS("maternal_normal_nmf_final_results.RDS")$H
+W_grouped_mat <- readRDS("maternal_normal_nmf_final_results.RDS")$W
+
+D_kl <- readRDS("maternal_normal_nmf_final_results.RDS")$D_kl
+# Finding the accuracy of the estimation
+# print("Kullback-Leibler divergence between V and WH for final step")
+# print(tail(results_grouped_pat$D_kl, n = 1))
+
+# Finding the relation between the age of the parent and the exposure
+W_grouped_mat <- cbind(W_grouped_mat, rownames(W_grouped_mat))
+W_grouped_mat <- as.data.frame(W_grouped_mat)
+colnames(W_grouped_mat) <- c("Exposure_Signature1", "Exposure_Signature2", "Exposure_Signature3", "Exposure_Signature4", "Exposure_Signature5", "Exposure_Signature6", "Group")
+
+filtered_data_mat_grouped <- grouped_data_mat %>% select(Group, AGE_MOTHER, Child) %>% group_by(Group) %>% summarise(AGE_MOTHER = mean(AGE_MOTHER), count = length(unique(Child)))
+new_grouped_mat <- inner_join(filtered_data_mat_grouped, W_grouped_mat, by = "Group")
+new_grouped_mat <- as.data.frame(new_grouped_mat)
+new_grouped_mat$Exposure_Signature1 <- as.numeric(new_grouped_mat$Exposure_Signature1)
+new_grouped_mat$Exposure_Signature2 <- as.numeric(new_grouped_mat$Exposure_Signature2)
+new_grouped_mat$Exposure_Signature3 <- as.numeric(new_grouped_mat$Exposure_Signature3)
+new_grouped_mat$Exposure_Signature4 <- as.numeric(new_grouped_mat$Exposure_Signature4)
+new_grouped_mat$Exposure_Signature5 <- as.numeric(new_grouped_mat$Exposure_Signature5)
+new_grouped_mat$Exposure_Signature6 <- as.numeric(new_grouped_mat$Exposure_Signature6)
+
+
+p1 <- ggplot(new_grouped_mat, aes(x = AGE_MOTHER, y = Exposure_Signature1 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +   geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature1 / count ~ AGE_MOTHER, data = new_grouped_mat))[1], 4), 
+                         "Slope:", round(coef(lm(Exposure_Signature1 / count ~ AGE_MOTHER, data = new_grouped_mat))[2], 4))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) + 
+  labs(y = "Exposure for s1", x = "Age of mother") 
+p2 <- ggplot(new_grouped_mat, aes(x = AGE_MOTHER, y = Exposure_Signature2 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +   geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature2 / count ~ AGE_MOTHER, data = new_grouped_mat))[1], 4), 
+                         "Slope:", round(coef(lm(Exposure_Signature2 / count ~ AGE_MOTHER, data = new_grouped_mat))[2], 4))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) +
+  labs(y = "Exposure for s2", x = "Age of mother")
+p3 <- ggplot(new_grouped_mat, aes(x = AGE_MOTHER, y = Exposure_Signature3 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +       geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature3 / count ~ AGE_MOTHER, data = new_grouped_mat))[1], 4), 
+                         "Slope:", round(coef(lm(Exposure_Signature3 / count ~ AGE_MOTHER, data = new_grouped_mat))[2], 4))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) +
+  labs(y = "Exposure for s3", x = "Age of mother")
+p4 <- ggplot(new_grouped_mat, aes(x = AGE_MOTHER, y = Exposure_Signature4 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +       geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature4 / count ~ AGE_MOTHER, data = new_grouped_mat))[1], 4), 
+                         "Slope:", round(coef(lm(Exposure_Signature4 / count ~ AGE_MOTHER, data = new_grouped_mat))[2], 4))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) +
+  labs(y = "Exposure for s4", x = "Age of mother") 
+p5 <- ggplot(new_grouped_mat, aes(x = AGE_MOTHER, y = Exposure_Signature5 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +       geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature5 / count ~ AGE_MOTHER, data = new_grouped_mat))[1], 4), 
+                         "Slope:", round(coef(lm(Exposure_Signature5 / count ~ AGE_MOTHER, data = new_grouped_mat))[2], 4))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) +
+  labs(y = "Exposure for s5", x = "Age of mother") 
+p6 <- ggplot(new_grouped_mat, aes(x = AGE_MOTHER, y = Exposure_Signature6 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +       geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature6 / count ~ AGE_MOTHER, data = new_grouped_mat))[1], 4), 
+                         "Slope:", round(coef(lm(Exposure_Signature6 / count ~ AGE_MOTHER, data = new_grouped_mat))[2], 4))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) +
+  labs(y = "Exposure for s6", x = "Age of mother") 
+
+
+# Find the maximum y-value across all plots
+max_y <- max(c(max(new_grouped_mat$Exposure_Signature1 / new_grouped_mat$count),
+               max(new_grouped_mat$Exposure_Signature2 / new_grouped_mat$count),
+               max(new_grouped_mat$Exposure_Signature3 / new_grouped_mat$count),
+               max(new_grouped_mat$Exposure_Signature4 / new_grouped_mat$count),
+               max(new_grouped_mat$Exposure_Signature5 / new_grouped_mat$count),
+               max(new_grouped_mat$Exposure_Signature6 / new_grouped_mat$count)))
+
+# Apply the same y-axis limits to all plots
+p1 <- p1 + coord_cartesian(ylim = c(0, max_y))
+p2 <- p2 + coord_cartesian(ylim = c(0, max_y))
+p3 <- p3 + coord_cartesian(ylim = c(0, max_y))
+p4 <- p4 + coord_cartesian(ylim = c(0, max_y))
+p5 <- p5 + coord_cartesian(ylim = c(0, max_y))
+p6 <- p6 + coord_cartesian(ylim = c(0, max_y))
+
+grid.arrange(p1,p2,p3,p4,p5,p6, nrow = 3)
+```
+
+
+```{r, fig.width= 10, fig.height=4, warning = FALSE}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1), cex = 1, mgp = c(1.5, 0.5, 0))
+
+# Convert the data into long format
+W_grouped_mat_long <- pivot_longer(new_grouped_mat, cols = starts_with("Exposure_Signature"), names_to = "Exposure", values_to = "Value")
+W_grouped_mat_long$AGE_MOTHER <- round(W_grouped_mat_long$AGE_MOTHER,0)
+
+# Calculate the total value for each group
+W_grouped_mat_long$Value <- as.numeric(W_grouped_mat_long$Value)
+group_totals <- W_grouped_mat_long %>%
+  group_by(AGE_MOTHER) %>%
+  summarise(total = sum(Value))
+
+# Merge the group totals with the long format dataset
+W_grouped_mat_long <- left_join(W_grouped_mat_long, group_totals, by = "AGE_MOTHER")
+
+# Calculate the proportion of each Exposure Signature within each group
+W_grouped_mat_long <- W_grouped_mat_long %>%
+  mutate(Proportion = Value / total * 100)
+
+# Create stacked barplot
+custom_labels <- c("Exposure_Signature1" = "s1", "Exposure_Signature2" = "s2", "Exposure_Signature3" = "s3", "Exposure_Signature4" = "s4", "Exposure_Signature5" = "s5", "Exposure_Signature6" = "s6")
+
+barplot_mat <- ggplot(W_grouped_mat_long, aes(x = factor(AGE_MOTHER), y = Proportion, fill = Exposure)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Age of mother", y = "Exposure in %") +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12, angle = 270, vjust = 0.5, hjust = 1),  # Rotate x-axis labels
+        axis.title = element_text(size = 18), 
+        legend.text = element_text(size = 18), 
+        legend.title = element_blank(),
+        legend.position = "top",  # Place legend on top
+        legend.box = "horizontal") +  # Display legend as a single line
+  scale_fill_discrete(labels = custom_labels)
+
+grid.arrange(barplot_mat, barplot_pat, ncol = 2)
+```
+
+
+
+
+```{r, fig.width= 10, fig.height=6, warning = FALSE}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1), cex = 1, mgp = c(1.5, 0.5, 0))
+# Convert the data to a data frame
+df <- data.frame(x = 1:ncol(H_grouped_mat), y = t(H_grouped_mat))
+# Create a new variable to group bars into sets of 6
+df <- cbind(df, rownames(df))
+colnames(df) <- c("x", "Signature1", "Signature2", "Signature3", "Signature4", "Signature5", "Signature6", "Mutationtype")
+df$Mutation <- cleaned_values <- substr(df$Mutationtype, 3, nchar(df$Mutationtype) - 2)
+
+H_df <- pivot_longer(df, Signature1:Signature6)
+names(H_df)[names(H_df) == "value"] <- "Intensity"
+
+ggplot(H_df) +
+  geom_col(aes(Mutationtype, y = Intensity, fill = Mutation)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, size = 6), legend.position = "none", strip.text = element_text(size = 18)) +
+  facet_grid(vars(name), vars(Mutation), scales = "free_x") + 
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18), axis.text.x = element_text(size = 10))
+```
+
+
+
+
+```{r}
+# To compare with COSMIC signatures with cosine similarities - 40 groups
+d <- dim(H_grouped_mat)[1]
+
+# To make sure the mutation types match with the COSMIC dataset
+H_grouped_mat <- H_grouped_mat[, match(COSMIC_v3.3.1_SBS_GRCh37$Type, colnames(H_grouped_mat))]
+
+# Function to calculate Kullback-Leibler divergence
+kl_divergence <- function(p, q) {
+  sum(p * log(p / q))
+}
+
+# Initialize matrices to save results
+similarities <- matrix(ncol = d, nrow = dim(COSMIC_v3.3.1_SBS_GRCh37)[2]-1)
+similarities_abs_diff <- matrix(ncol = d, nrow = dim(COSMIC_v3.3.1_SBS_GRCh37)[2]-1)
+similarities_KL_div <- matrix(ncol = d, nrow = dim(COSMIC_v3.3.1_SBS_GRCh37)[2]-1)
+
+# Iterate over all signatures, to find which COSMIC signature it is the closest to
+for (j in 1:dim(H_grouped_mat)[1]) {
+  for (i in 1:(dim(COSMIC_v3.3.1_SBS_GRCh37)[2]-1)) {
+    similarities[i,j] <- cosine(H_grouped_mat[j,], COSMIC_v3.3.1_SBS_GRCh37[,i+1])
+    similarities_abs_diff[i,j] <- sum(abs(H_grouped_mat[j,] - COSMIC_v3.3.1_SBS_GRCh37[,i+1]))
+    similarities_KL_div[i,j] <- kl_divergence(H_grouped_mat[j,], COSMIC_v3.3.1_SBS_GRCh37[,i+1])
+  }
+}
+
+# Apply the function to each column of the matrix to find SBS signatures that match
+results <- apply(similarities, 2, find_max_second)
+results_abs_diff <- apply(similarities_abs_diff, 2, find_min_second)
+
+# Display the results
+for (i in 1:ncol(similarities)) {
+  cat("**Signature", i, ":**\n")
+  cat("SBS signature with highest cosine similarity:", colnames(COSMIC_v3.3.1_SBS_GRCh37[results[[i]]$max_idx + 1]), "\n")
+  cat("Cosine similarity value:", results[[i]]$max_val, "\n")
+  cat("SBS signature with second highest cosine similarity:", colnames(COSMIC_v3.3.1_SBS_GRCh37[results[[i]]$second_idx + 1]), "\n")
+  cat("Cosine similarity value:", results[[i]]$second_val, "\n\n")
+  cat("SBS signature with lowest absolute difference:", colnames(COSMIC_v3.3.1_SBS_GRCh37[results_abs_diff[[i]]$min_idx + 1]), "\n")
+  cat("Absolute difference value:", results_abs_diff[[i]]$min_val, "\n")
+  cat("SBS signature with second lowest absolute difference:", colnames(COSMIC_v3.3.1_SBS_GRCh37[results_abs_diff[[i]]$second_idx + 1]), "\n")
+  cat("Absolute difference value:", results_abs_diff[[i]]$second_val, "\n\n")
+}
+```
+
+
+```{r}
+# With the Hungarian algorithm
+
+# Want the largest cosine similarity
+similarities_hung <- 1-similarities
+
+solve_LSAP(t(similarities_hung))
+
+
+similarities[71,1]
+similarities[61,2]
+similarities[1,3]
+similarities[6,4]
+similarities[76,5]
+similarities[5,6]
+
+# Want the smallest abs diff
+solve_LSAP(t(similarities_abs_diff))
+
+similarities_abs_diff[47,1]
+similarities_abs_diff[3,2]
+similarities_abs_diff[73,3]
+similarities_abs_diff[76,4]
+similarities_abs_diff[38,5]
+similarities_abs_diff[5,6]
+
+
+solve_LSAP(t(similarities_KL_div))
+
+similarities_KL_div[5,1]
+similarities_KL_div[46,2]
+similarities_KL_div[73,3]
+similarities_KL_div[78,4]
+similarities_KL_div[38,5]
+similarities_KL_div[76,6]
+
+```
+
+
+## Age signatures
+
+```{r}
+# To compare with COSMIC signatures with cosine similarities - 40 groups
+d <- dim(H_grouped_mat)[1]
+
+# To make sure the mutation types match with the COSMIC dataset
+H_grouped_mat <- H_grouped_mat[, match(age_signatures$Type, colnames(H_grouped_mat))]
+
+# Initialize matrices to save results
+similarities <- matrix(ncol = d, nrow = dim(age_signatures)[2]-1)
+similarities_abs_diff <- matrix(ncol = d, nrow = dim(age_signatures)[2]-1)
+similarities_KL_div <- matrix(ncol = d, nrow = dim(age_signatures)[2]-1)
+
+# Iterate over all signatures, to find which COSMIC signature it is the closest to
+for (j in 1:dim(H_grouped_mat)[1]) {
+  for (i in 1:(dim(age_signatures)[2]-1)) {
+    similarities[i,j] <- cosine(H_grouped_mat[j,],age_signatures[,i+1])
+    similarities_abs_diff[i,j] <- sum(abs(H_grouped_mat[j,] - age_signatures[,i+1]))
+    similarities_KL_div[i,j] <- kl_divergence(H_grouped_mat[j,], age_signatures[,i+1])
+  }
+}
+
+# Apply the function to each column of the matrix to find SBS signatures that match
+results <- apply(similarities, 2, find_max_second)
+results_abs_diff <- apply(similarities_abs_diff, 2, find_min_second)
+```
+
+
+```{r}
+# With the Hungarian algorithm
+
+# Want the largest cosine similarity
+similarities_hung <- 1-similarities
+
+solve_LSAP(t(similarities_hung))
+
+
+similarities[5,1]
+similarities[6,2]
+similarities[1,3]
+similarities[7,4]
+similarities[4,5]
+similarities[2,6]
+
+# Want the smallest abs diff
+solve_LSAP(t(similarities_abs_diff))
+
+similarities_abs_diff[5,1]
+similarities_abs_diff[6,2]
+similarities_abs_diff[3,3]
+similarities_abs_diff[2,4]
+similarities_abs_diff[4,5]
+similarities_abs_diff[2,6]
+
+
+# Want the smallest KL div
+solve_LSAP(t(similarities_KL_div))
+
+similarities_KL_div[5,1]
+similarities_KL_div[6,2]
+similarities_KL_div[1,3]
+similarities_KL_div[2,4]
+similarities_KL_div[4,5]
+similarities_KL_div[3,6]
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### Test with only 2 signatures
+
+
+```{r, fig.width= 10, fig.height=4.5, warning = FALSE}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1), cex = 1, mgp = c(1.5, 0.5, 0))
+# Checking to see if exposures are age dependent - paternal
+
+K <- 2
+results_grouped_pat <- poisson_updates(V_grouped_pat, K, Iter)
+saveRDS(list(H_grouped_pat = results_grouped_pat$H, W_grouped_pat = results_grouped_pat$W, D_kl = results_grouped_pat$D_kl, counter = results_grouped_pat$counter, logLik = results_grouped_pat$loglik), file = "paternal_normal_nmf_final_results_2.RDS")
+
+
+H_grouped_pat <- results_grouped_pat$H
+W_grouped_pat <- results_grouped_pat$W
+
+H_grouped_pat <- readRDS("paternal_normal_nmf_final_results.RDS")$H
+W_grouped_pat <- readRDS("paternal_normal_nmf_final_results.RDS")$W
+
+# Finding the accuracy of the estimation
+# print("Kullback-Leibler divergence between V and WH for final step")
+# print(tail(results_grouped_pat$D_kl, n = 1))
+
+# Finding the relation between the age of the parent and the exposure
+W_grouped_pat <- cbind(W_grouped_pat, rownames(W_grouped_pat))
+W_grouped_pat <- as.data.frame(W_grouped_pat)
+colnames(W_grouped_pat) <- c("Exposure_Signature1", "Exposure_Signature2", "Group")
+
+filtered_data_pat_grouped <- grouped_data_pat %>% select(Group, AGE_FATHER, Child) %>% group_by(Group) %>% summarise(AGE_FATHER = mean(AGE_FATHER), count = length(unique(Child)))
+new_grouped_pat <- inner_join(filtered_data_pat_grouped, W_grouped_pat, by = "Group")
+new_grouped_pat <- as.data.frame(new_grouped_pat)
+new_grouped_pat$Exposure_Signature1 <- as.numeric(new_grouped_pat$Exposure_Signature1)
+new_grouped_pat$Exposure_Signature2 <- as.numeric(new_grouped_pat$Exposure_Signature2)
+
+
+
+p1 <- ggplot(new_grouped_pat, aes(x = AGE_FATHER, y = Exposure_Signature1 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +   geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature1 / count ~ AGE_FATHER, data = new_grouped_pat))[1], 2), 
+                         "Slope:", round(coef(lm(Exposure_Signature1 / count ~ AGE_FATHER, data = new_grouped_pat))[2], 2))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) + 
+  labs(y = "Exposure for s1", x = "Age of father") 
+p2 <- ggplot(new_grouped_pat, aes(x = AGE_FATHER, y = Exposure_Signature2 / count)) + geom_point() + geom_smooth(method = "lm", se = FALSE) +   geom_text(aes(label = paste("Intercept:", round(coef(lm(Exposure_Signature2 / count ~ AGE_FATHER, data = new_grouped_pat))[1], 2), 
+                         "Slope:", round(coef(lm(Exposure_Signature2 / count ~ AGE_FATHER, data = new_grouped_pat))[2], 2))),
+            x = -Inf, y = Inf, hjust = 0, vjust = 1, size = 6) + 
+  theme_minimal() +
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18)) +
+  labs(y = "Exposure for s2", x = "Age of father")
+
+
+# Find the maximum y-value across all plots
+max_y <- max(c(max(new_grouped_pat$Exposure_Signature1 / new_grouped_pat$count),
+               max(new_grouped_pat$Exposure_Signature2 / new_grouped_pat$count)))
+
+min_y <- min(c(min(new_grouped_pat$Exposure_Signature1 / new_grouped_pat$count),
+               min(new_grouped_pat$Exposure_Signature2 / new_grouped_pat$count)))
+
+# Apply the same y-axis limits to all plots
+p1 <- p1 + coord_cartesian(ylim = c(min_y, max_y))
+p2 <- p2 + coord_cartesian(ylim = c(min_y, max_y))
+
+
+grid.arrange(p1,p2, nrow = 1)
+```
+
+
+```{r}
+
+# Convert the data into long format
+W_grouped_pat_long <- pivot_longer(new_grouped_pat, cols = starts_with("Exposure_Signature"), names_to = "Exposure", values_to = "Value")
+W_grouped_pat_long$AGE_FATHER <- round(W_grouped_pat_long$AGE_FATHER,0)
+
+# Calculate the total value for each group
+W_grouped_pat_long$Value <- as.numeric(W_grouped_pat_long$Value)
+group_totals <- W_grouped_pat_long %>%
+  group_by(AGE_FATHER) %>%
+  summarise(total = sum(Value))
+
+# Merge the group totals with the long format dataset
+W_grouped_pat_long <- left_join(W_grouped_pat_long, group_totals, by = "AGE_FATHER")
+
+# Calculate the proportion of each Exposure Signature within each group
+W_grouped_pat_long <- W_grouped_pat_long %>%
+  mutate(Proportion = Value / total * 100)
+
+# Create stacked barplot
+custom_labels <- c("Exposure_Signature1" = "Exposure for s1", "Exposure_Signature2" = "Exposure for s2", "Exposure_Signature3" = "Exposure for s3", "Exposure_Signature4" = "Exposure for s4")
+
+barplot_pat <- ggplot(W_grouped_pat_long, aes(x = factor(AGE_FATHER), y = Proportion, fill = Exposure)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Age of father", y = "Exposure in %") +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12, angle = 270, vjust = 0.5, hjust = 1),  # Rotate x-axis labels
+        axis.title = element_text(size = 18), 
+        legend.text = element_text(size = 18), 
+        legend.title = element_blank(),
+        legend.position = "top",  # Place legend on top
+        legend.box = "horizontal") +  # Display legend as a single line
+  scale_fill_discrete(labels = custom_labels)
+
+barplot_pat
+```
+
+
+```{r}
+# Convert the data to a data frame
+df <- data.frame(x = 1:ncol(H_grouped_pat), y = t(H_grouped_pat))
+# Create a new variable to group bars into sets of 6
+df <- cbind(df, rownames(df))
+colnames(df) <- c("x", "Signature1", "Signature2", "Mutationtype")
+df$Mutation <- cleaned_values <- substr(df$Mutationtype, 3, nchar(df$Mutationtype) - 2)
+# df$mutation <- factor(rep(1:ceiling(nrow(df)/16), each = 16)[1:nrow(df)], levels = unique(rep(1:ceiling(nrow(df)/16), each = 16)))
+
+# Define a color palette
+colors <- c("skyblue", "salmon", "green", "purple", "orange", "forestgreen")
+```
+
+
+```{r, fig.width= 10, fig.height=, warning = FALSE}
+par(mai = c(0.5,0.5,0.3,0.05), mfrow = c(2,1), cex = 1, mgp = c(1.5, 0.5, 0))
+## The good signature plot!!!
+
+H_df <- pivot_longer(df, Signature1:Signature2)
+names(H_df)[names(H_df) == "value"] <- "Intensity"
+
+ggplot(H_df) +
+  geom_col(aes(Mutationtype, y = Intensity, fill = Mutation)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, size = 6), legend.position = "none", strip.text = element_text(size = 18)) +
+  facet_grid(vars(name), vars(Mutation), scales = "free_x") + 
+  theme(axis.text = element_text(size = 18), axis.title = element_text(size = 18), axis.text.x = element_text(size = 10))
+```
