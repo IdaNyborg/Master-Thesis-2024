@@ -18,3 +18,5 @@ This GitHub page contains all code used in the master thesis project by Ida Nybo
 "Trio data parametrized model selection" contains code for performing cross validation and BIC analysis for the parametrized NMF model for both the paternal and maternal datasets.
 
 "Parametrized model" is the code for the results of the parametrized NMF analysis on both the paternal and maternal dataset, with the selected number of signatures.
+
+"Poisson updates function" contains the update functions for both the regular and parametrized NMF models, as well as other supporting functions used throughout the thesis.
